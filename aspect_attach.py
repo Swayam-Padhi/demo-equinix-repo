@@ -9,13 +9,18 @@ from urllib.parse import quote
 from google.api_core.exceptions import NotFound
 
 # ----------------- Argument Parsing -----------------
-parser = argparse.ArgumentParser(description="Attach Dataplex aspects to BigQuery assets/tables.")
+parser = argparse.ArgumentParser(description="Attach Dataplex aspects to BigQuery tables or assets.")
 parser.add_argument("--entry_type", required=True, choices=["asset", "table"], help="Entry type: asset or table")
 parser.add_argument("--lake", required=True, help="Dataplex Lake ID")
-parser.add_argument("--asset", required=True, help="Dataplex Asset (dataset) name")
-parser.add_argument("--table", required=False, help="Table name (required if entry_type=table)")
+parser.add_argument("--asset", required=False, help="Asset (dataset) name")
+parser.add_argument("--table", required=False, help="Table name (only for table entry type)")
 parser.add_argument("--aspects", required=True, help="Select 'mandatory' or provide comma-separated aspects/groups")
 args = parser.parse_args()
+
+ENTRY_TYPE = args.entry_type
+TARGET_LAKE_ID = args.lake.strip()
+TARGET_DATASET = args.asset.strip() if args.asset else None
+TARGET_TABLE = args.table.strip() if args.table else None
 
 # ----------------- Load Aspects -----------------
 try:
@@ -40,7 +45,6 @@ for aspect_name in input_aspects:
         expanded_aspects.extend(aspect_groups[aspect_name])
     else:
         expanded_aspects.append(aspect_name)
-
 expanded_aspects = list(dict.fromkeys(expanded_aspects))  # remove duplicates
 
 # ----------------- Validate Aspects -----------------
@@ -51,12 +55,6 @@ if invalid_aspects:
     sys.exit(1)
 
 TARGET_ASPECTS = expanded_aspects
-
-# ----------------- Assign Targets -----------------
-ENTRY_TYPE = args.entry_type
-TARGET_LAKE_ID = args.lake.strip()
-TARGET_DATASET = args.asset.strip()
-TARGET_TABLE = args.table.strip() if args.table else None
 
 # ----------------- Config -----------------
 PROJECT_ID = "clean-aleph-411709"
@@ -80,8 +78,8 @@ def attach_aspects(headers, entry_name, aspects_data):
     else:
         try:
             error_json = response.json()
-            error_message = error_json.get("error", {}).get("message", response.text)
-        except:
+            error_message = error_json.get("error", {}).get("message", "")
+        except json.JSONDecodeError:
             error_message = response.text
         print(f"Failed ({response.status_code}): {error_message}")
         return False
@@ -89,78 +87,78 @@ def attach_aspects(headers, entry_name, aspects_data):
 # ----------------- Main Logic -----------------
 def main():
     try:
-        # Authenticate using GitHub Actions SA key
         credentials, project = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
-    except google.auth.exceptions.DefaultCredentialsError:
+        if not credentials.valid:
+            credentials.refresh(Request())
+        access_token = credentials.token
+        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+    except Exception:
         print("Authentication failed. Ensure GOOGLE_APPLICATION_CREDENTIALS is set.")
         sys.exit(1)
-
-    if not credentials.valid:
-        credentials.refresh(Request())
-    access_token = credentials.token
-    headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
-
-    bq_client = bigquery.Client(project=PROJECT_ID)
 
     with open(ASPECTS_FILE, "r") as f:
         aspects_data = json.load(f)
 
     success_count = 0
 
-    # Fetch asset details from Dataplex
+    # Fetch zones
     lake_path = f"projects/{PROJECT_ID}/locations/{LOCATION}/lakes/{TARGET_LAKE_ID}"
-    assets_response = requests.get(f"{BASE_URL}/{lake_path}/zones", headers=headers)
-    assets_response.raise_for_status()
-    zones = assets_response.json().get("zones", [])
+    lake_resp = requests.get(f"{BASE_URL}/{lake_path}", headers=headers)
+    lake_resp.raise_for_status()
+    zones_resp = requests.get(f"{BASE_URL}/{lake_path}/zones", headers=headers)
+    zones_resp.raise_for_status()
+    zones = zones_resp.json().get("zones", [])
 
     if not zones:
-        print("No zones found in the lake.")
+        print("No zones found for the target lake.")
         sys.exit(1)
 
-    target_asset = None
     for zone in zones:
-        zone_assets = requests.get(f"{BASE_URL}/{zone['name']}/assets", headers=headers).json().get("assets", [])
-        for asset in zone_assets:
-            if asset['name'].split('/')[-1] == TARGET_DATASET:
-                target_asset = asset
-                break
-        if target_asset:
-            break
+        assets_resp = requests.get(f"{BASE_URL}/{zone['name']}/assets", headers=headers)
+        assets_resp.raise_for_status()
+        assets = assets_resp.json().get("assets", [])
 
-    if not target_asset:
-        print(f"Asset {TARGET_DATASET} not found.")
-        sys.exit(1)
+        if not assets:
+            continue
 
-    if ENTRY_TYPE == "asset":
-        # Asset-level entry
-        entry_name = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/{ENTRY_GROUP}/entries/{TARGET_DATASET}"
-        attached = attach_aspects(headers, entry_name, aspects_data)
-        if attached:
-            success_count += 1
-    else:
-        # Table-level entry
-        bq_resource_full_path = target_asset['resourceSpec'].get('resource') or target_asset['resourceSpec'].get('name')
-        display_path = bq_resource_full_path.replace("//bigquery.googleapis.com/", "")
-        parts = display_path.split('/')
-        bq_project_id = parts[1]
-        bq_dataset_id = parts[3]
-        dataset_ref = bigquery.DatasetReference(bq_project_id, bq_dataset_id)
+        for asset in assets:
+            asset_id = asset['name'].split('/')[-1]
+            asset_type = asset.get('resourceSpec', {}).get('type')
 
-        try:
-            tables = list(bq_client.list_tables(dataset_ref))
-            if not tables:
-                print("No tables found in dataset.")
-                sys.exit(1)
-            for table in tables:
-                if TARGET_TABLE and table.table_id != TARGET_TABLE:
-                    continue
-                entry_name = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/{ENTRY_GROUP}/entries/bigquery.googleapis.com/projects/{bq_project_id}/datasets/{bq_dataset_id}/tables/{table.table_id}"
+            if TARGET_DATASET and asset_id != TARGET_DATASET:
+                continue
+
+            if ENTRY_TYPE == "asset" and asset_type == "BIGQUERY_DATASET":
+                # Asset-level entry
+                bq_resource_full_path = asset['resourceSpec'].get('resource') or asset['resourceSpec'].get('name')
+                entry_name = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/{ENTRY_GROUP}/entries/{bq_resource_full_path.lstrip('//')}"
                 attached = attach_aspects(headers, entry_name, aspects_data)
                 if attached:
                     success_count += 1
-        except NotFound:
-            print(f"Dataset {bq_project_id}.{bq_dataset_id} not found.")
-            sys.exit(1)
+
+            elif ENTRY_TYPE == "table" and asset_type == "BIGQUERY_DATASET":
+                bq_resource_full_path = asset['resourceSpec'].get('resource') or asset['resourceSpec'].get('name')
+                parts = bq_resource_full_path.replace("//bigquery.googleapis.com/", "").split('/')
+                if len(parts) < 4:
+                    print(f"Skipping asset {asset_id}: Unexpected resource path format.")
+                    continue
+                bq_project_id, bq_dataset_id = parts[1], parts[3]
+
+                client = bigquery.Client(project=PROJECT_ID)
+                dataset_ref = bigquery.DatasetReference(bq_project_id, bq_dataset_id)
+                try:
+                    tables = list(client.list_tables(dataset_ref))
+                except NotFound:
+                    print(f"Dataset {bq_project_id}.{bq_dataset_id} not found.")
+                    continue
+
+                for table in tables:
+                    if TARGET_TABLE and table.table_id != TARGET_TABLE:
+                        continue
+                    entry_name = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/{ENTRY_GROUP}/entries/bigquery.googleapis.com/projects/{bq_project_id}/datasets/{bq_dataset_id}/tables/{table.table_id}"
+                    attached = attach_aspects(headers, entry_name, aspects_data)
+                    if attached:
+                        success_count += 1
 
     if success_count == 0:
         print("No aspects were attached successfully. Exiting with failure.")
