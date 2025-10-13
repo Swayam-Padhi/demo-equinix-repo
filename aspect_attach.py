@@ -1,9 +1,9 @@
 import argparse
 import json
 import sys
-import subprocess
 import requests
 import google.auth
+from google.auth.transport.requests import Request
 from google.cloud import bigquery
 from urllib.parse import quote
 from google.api_core.exceptions import NotFound
@@ -66,7 +66,6 @@ PROJECT_ID = "clean-aleph-411709"
 LOCATION = "us-central1"
 ENTRY_GROUP = "@bigquery"
 BASE_URL = "https://dataplex.googleapis.com/v1"
-access_token = subprocess.getoutput("gcloud auth print-access-token")
 ASPECTS_FILE = "aspects.json"
 
 # ----------------- Helper: Attach Aspects -----------------
@@ -95,13 +94,19 @@ def attach_aspects(headers, bq_project_id, bq_dataset_id, table_id, dataset_loca
 # ----------------- Main Logic -----------------
 def list_dataplex_assets_safely():
     try:
+        # Use default credentials (from GitHub Actions secret)
         credentials, project = google.auth.default(
             scopes=["https://www.googleapis.com/auth/cloud-platform"]
         )
         print(f"{Fore.GREEN}Authentication successful.")
     except google.auth.exceptions.DefaultCredentialsError:
-        print(f"{Fore.RED}Authentication failed. Run: gcloud auth application-default login")
+        print(f"{Fore.RED}Authentication failed. Ensure GOOGLE_APPLICATION_CREDENTIALS is set.")
         sys.exit(1)
+
+    # Refresh token if necessary
+    if not credentials.valid:
+        credentials.refresh(Request())
+    access_token = credentials.token
 
     headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
     bq_client = bigquery.Client(project=PROJECT_ID)
@@ -175,3 +180,4 @@ def list_dataplex_assets_safely():
 
 if __name__ == "__main__":
     list_dataplex_assets_safely()
+
