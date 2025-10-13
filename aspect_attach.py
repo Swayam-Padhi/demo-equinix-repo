@@ -150,13 +150,28 @@ def list_dataplex_assets_safely():
                     continue
 
                 if asset_type == 'BIGQUERY_DATASET':
+                    # Handle missing resource
                     bq_resource_full_path = asset['resourceSpec'].get('resource')
+                    if not bq_resource_full_path:
+                        bq_resource_full_path = asset['resourceSpec'].get('name')
+                        if not bq_resource_full_path:
+                            print(f"{Fore.YELLOW}Skipping asset {asset_id}: No resource path found.")
+                            continue
+
                     display_path = bq_resource_full_path.replace("//bigquery.googleapis.com/", "")
                     parts = display_path.split('/')
+                    if len(parts) < 4:
+                        print(f"{Fore.YELLOW}Skipping asset {asset_id}: Unexpected resource format: {display_path}")
+                        continue
+
                     bq_project_id = parts[1]
                     bq_dataset_id = parts[3]
                     dataset_ref = bigquery.DatasetReference(bq_project_id, bq_dataset_id)
-                    bq_dataset_obj = bq_client.get_dataset(dataset_ref)
+                    try:
+                        bq_dataset_obj = bq_client.get_dataset(dataset_ref)
+                    except NotFound:
+                        print(f"{Fore.YELLOW}Dataset {bq_project_id}.{bq_dataset_id} not found, skipping.")
+                        continue
                     dataset_location = bq_dataset_obj.location.lower()
 
                     tables = list(bq_client.list_tables(dataset_ref))
@@ -180,4 +195,5 @@ def list_dataplex_assets_safely():
 
 if __name__ == "__main__":
     list_dataplex_assets_safely()
+
 
