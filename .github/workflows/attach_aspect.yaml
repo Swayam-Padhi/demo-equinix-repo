@@ -39,9 +39,12 @@ jobs:
         run: |
           pip install google-auth google-cloud-bigquery requests
 
+      - name: Setup GCP Service Account
+        run: |
+          echo "${{ secrets.GCP_SA_KEY }}" > gcp-key.json
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$PWD/gcp-key.json" >> $GITHUB_ENV
+
       - name: Run Dataplex Aspect Attach Script
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GCP_SA_KEY }}
         run: |
           python aspect_attach.py \
             --entry_type "${{ github.event.inputs.entry_type }}" \
@@ -49,4 +52,5 @@ jobs:
             --asset "${{ github.event.inputs.asset }}" \
             --table "${{ github.event.inputs.table }}" \
             --aspects "${{ github.event.inputs.aspects }}"
+
 
