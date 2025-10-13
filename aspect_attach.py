@@ -29,6 +29,7 @@ all_aspects = {k: v for k, v in aspects_json.items() if k != "groups"}
 
 # ----------------- Parse & Expand Input -----------------
 input_aspects = [a.strip() for a in args.aspects.split(",") if a.strip()]
+
 if not input_aspects:
     print("Error: You must select 'mandatory' or provide at least one aspect/group.")
     sys.exit(1)
@@ -71,9 +72,7 @@ def attach_aspects(headers, bq_project_id, bq_dataset_id, table_id, dataset_loca
 
     aspects_payload = {}
     for aspect_name in TARGET_ASPECTS:
-        # Use fully qualified aspect path
-        aspect_type_path = f"projects/{PROJECT_ID}/locations/{dataset_location}/aspectTypes/{aspect_name}"
-        aspects_payload[aspect_type_path] = {"data": aspects_data[aspect_name]}
+        aspects_payload[f"{PROJECT_ID}.{dataset_location}.{aspect_name}"] = {"data": aspects_data[aspect_name]}
 
     payload = {"name": entry_name, "aspects": aspects_payload}
     response = requests.patch(url, headers=headers, data=json.dumps(payload))
@@ -81,6 +80,14 @@ def attach_aspects(headers, bq_project_id, bq_dataset_id, table_id, dataset_loca
     if response.status_code == 200:
         print(f"Aspects attached successfully to {table_id}")
         return True
+    elif response.status_code == 403:
+        try:
+            error_json = response.json()
+            error_message = error_json.get("error", {}).get("message", "")
+        except:
+            error_message = response.text
+        print(f"Permission denied ({response.status_code}): {error_message}")
+        return False
     else:
         try:
             error_json = response.json()
