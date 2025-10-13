@@ -59,7 +59,7 @@ ASPECTS_FILE = "aspects.json"
 
 # ----------------- Helper: Attach Aspects -----------------
 def attach_aspects(headers, entry_name, aspects_data):
-    entry_url = f"{BASE_URL}/{entry_name}"  # <-- Full URL to avoid MissingSchema
+    entry_url = f"{BASE_URL}/{entry_name}"  # Full URL
     payload = {
         "name": entry_name,
         "aspects": {f"{PROJECT_ID}.{LOCATION}.{a}": {"data": aspects_data[a]} for a in TARGET_ASPECTS}
@@ -113,7 +113,7 @@ def main():
         assets = assets_resp.json().get("assets", [])
 
         for asset in assets:
-            asset_id = asset['name'].split('/')[-1]
+            asset_id = asset['name'].split('/')[-1]  # Dataplex asset ID
             asset_type = asset.get('resourceSpec', {}).get('type')
             if args.asset and asset_id != args.asset:
                 continue
@@ -124,8 +124,7 @@ def main():
 
             # ----------------- Asset Entry -----------------
             if args.entry_type == "asset":
-                entry_id = bq_resource.replace("//bigquery.googleapis.com/", "") if asset_type == "BIGQUERY_DATASET" else asset_id
-                entry_name = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/{ENTRY_GROUP}/entries/{quote(entry_id)}"
+                entry_name = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/{ENTRY_GROUP}/entries/{quote(asset_id)}"
                 print("Attaching aspects to asset entry:", entry_name)
                 if attach_aspects(headers, entry_name, aspects_data):
                     success_count += 1
