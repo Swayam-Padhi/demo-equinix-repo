@@ -15,7 +15,7 @@ on:
         required: true
       asset:
         description: "Enter the Asset (dataset) name"
-        required: true
+        required: false
       table:
         description: "Enter the Table name (leave blank to apply to all tables in dataset)"
         required: false
