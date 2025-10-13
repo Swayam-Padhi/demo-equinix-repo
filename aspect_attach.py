@@ -83,18 +83,27 @@ def attach_aspects(headers, bq_project_id, bq_dataset_id, table_id, dataset_loca
 
     if response.status_code == 200:
         print(f"{Fore.GREEN}Aspects attached successfully to {table_id}")
+        return True
+    elif response.status_code == 403:
+        try:
+            error_json = response.json()
+            error_message = error_json.get("error", {}).get("message", "")
+        except:
+            error_message = response.text
+        print(f"{Fore.RED}Permission denied ({response.status_code}): {error_message}")
+        return False
     else:
         try:
             error_json = response.json()
             error_message = error_json.get("error", {}).get("message", "")
-            print(f"{Fore.RED}Failed ({response.status_code}): {error_message}")
         except json.JSONDecodeError:
-            print(f"{Fore.RED}Failed ({response.status_code}): {response.text}")
+            error_message = response.text
+        print(f"{Fore.RED}Failed ({response.status_code}): {error_message}")
+        return False
 
 # ----------------- Main Logic -----------------
 def list_dataplex_assets_safely():
     try:
-        # Use default credentials (from GitHub Actions secret)
         credentials, project = google.auth.default(
             scopes=["https://www.googleapis.com/auth/cloud-platform"]
         )
@@ -103,20 +112,19 @@ def list_dataplex_assets_safely():
         print(f"{Fore.RED}Authentication failed. Ensure GOOGLE_APPLICATION_CREDENTIALS is set.")
         sys.exit(1)
 
-    # Refresh token if necessary
     if not credentials.valid:
         credentials.refresh(Request())
     access_token = credentials.token
-
     headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
     bq_client = bigquery.Client(project=PROJECT_ID)
-    parent = f"projects/{PROJECT_ID}/locations/{LOCATION}"
 
     with open(ASPECTS_FILE, "r") as f:
         aspects_data = json.load(f)
 
+    success_count = 0  # Track number of successful attachments
+
     try:
-        lake_name_path = f"{parent}/lakes/{TARGET_LAKE_ID}"
+        lake_name_path = f"projects/{PROJECT_ID}/locations/{LOCATION}/lakes/{TARGET_LAKE_ID}"
         lake_response = requests.get(f"{BASE_URL}/{lake_name_path}", headers=headers)
         lake_response.raise_for_status()
         print(f"{Fore.BLUE}Processing Lake: {TARGET_LAKE_ID}")
@@ -127,7 +135,7 @@ def list_dataplex_assets_safely():
 
         if not zones_list:
             print(f"{Fore.YELLOW}No zones found for the target lake.")
-            return
+            sys.exit(1)
 
         for zone in zones_list:
             zone_id = zone["name"].split("/")[-1]
@@ -150,13 +158,10 @@ def list_dataplex_assets_safely():
                     continue
 
                 if asset_type == 'BIGQUERY_DATASET':
-                    # Handle missing resource
-                    bq_resource_full_path = asset['resourceSpec'].get('resource')
+                    bq_resource_full_path = asset['resourceSpec'].get('resource') or asset['resourceSpec'].get('name')
                     if not bq_resource_full_path:
-                        bq_resource_full_path = asset['resourceSpec'].get('name')
-                        if not bq_resource_full_path:
-                            print(f"{Fore.YELLOW}Skipping asset {asset_id}: No resource path found.")
-                            continue
+                        print(f"{Fore.YELLOW}Skipping asset {asset_id}: No resource path found.")
+                        continue
 
                     display_path = bq_resource_full_path.replace("//bigquery.googleapis.com/", "")
                     parts = display_path.split('/')
@@ -183,17 +188,25 @@ def list_dataplex_assets_safely():
                         table_id = table.table_id
                         if TARGET_TABLE and table_id != TARGET_TABLE:
                             continue
-                        attach_aspects(headers, bq_project_id, bq_dataset_id, table_id, dataset_location, aspects_data)
+                        attached = attach_aspects(headers, bq_project_id, bq_dataset_id, table_id, dataset_location, aspects_data)
+                        if attached:
+                            success_count += 1
                 else:
                     print(f"{Fore.YELLOW}Skipping non-BigQuery asset.")
+
+        if success_count == 0:
+            print(f"{Fore.RED}No aspects were attached successfully. Exiting with failure.")
+            sys.exit(1)
+        else:
+            print(f"{Fore.GREEN}Aspects attached successfully to {success_count} table(s).")
 
     except requests.exceptions.HTTPError as http_err:
         print(f"{Fore.RED}HTTP error: {http_err}")
         print(f"{Fore.RED}Response Body: {http_err.response.text}")
+        sys.exit(1)
     except Exception as e:
         print(f"{Fore.RED}Unexpected error: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     list_dataplex_assets_safely()
-
-
