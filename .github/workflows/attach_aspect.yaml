@@ -44,7 +44,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          pip install google-cloud-bigquery google-auth requests colorama
+          pip install google-cloud-bigquery google-auth
 
       - name: Run Aspect Attachment
         run: |
