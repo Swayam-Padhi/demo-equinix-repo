@@ -59,11 +59,12 @@ ASPECTS_FILE = "aspects.json"
 
 # ----------------- Helper: Attach Aspects -----------------
 def attach_aspects(headers, entry_name, aspects_data):
+    entry_url = f"{BASE_URL}/{entry_name}"  # <-- Full URL to avoid MissingSchema
     payload = {
         "name": entry_name,
         "aspects": {f"{PROJECT_ID}.{LOCATION}.{a}": {"data": aspects_data[a]} for a in TARGET_ASPECTS}
     }
-    response = requests.patch(entry_name, headers=headers, data=json.dumps(payload))
+    response = requests.patch(entry_url, headers=headers, data=json.dumps(payload))
     if response.status_code == 200:
         print(f"Aspects attached successfully to {entry_name}")
         return True
@@ -160,5 +161,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
