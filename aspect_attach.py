@@ -58,26 +58,24 @@ BASE_URL = "https://dataplex.googleapis.com/v1"
 ASPECTS_FILE = "aspects.json"
 
 # ----------------- Helper: Attach Aspects -----------------
-def attach_aspects(headers, resource_name, aspects_data):
-    """Attach aspects to the given resource (asset or table entry)."""
+def attach_aspects(headers, entry_name, aspects_data):
     payload = {
-        "name": resource_name,
+        "name": entry_name,
         "aspects": {f"{PROJECT_ID}.{LOCATION}.{a}": {"data": aspects_data[a]} for a in TARGET_ASPECTS}
     }
-    response = requests.patch(f"{BASE_URL}/{resource_name}", headers=headers, data=json.dumps(payload))
+    response = requests.patch(f"{BASE_URL}/{entry_name}", headers=headers, data=json.dumps(payload))
     if response.status_code == 200:
-        print(f"Aspects attached successfully to {resource_name}")
+        print(f"Aspects attached successfully to {entry_name}")
         return True
     try:
         error_msg = response.json().get("error", {}).get("message", response.text)
     except:
         error_msg = response.text
-    print(f"Failed ({response.status_code}) on {resource_name}: {error_msg}")
+    print(f"Failed ({response.status_code}) on {entry_name}: {error_msg}")
     return False
 
 # ----------------- Main Logic -----------------
 def main():
-    # Authenticate using GCP Service Account Key
     if "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
         print("GOOGLE_APPLICATION_CREDENTIALS not set. Exiting.")
         sys.exit(1)
@@ -103,7 +101,6 @@ def main():
     lake_path = f"projects/{PROJECT_ID}/locations/{LOCATION}/lakes/{args.lake}"
     print(f"Processing Lake: {args.lake}")
 
-    # Get all zones in the lake
     zones_resp = requests.get(f"{BASE_URL}/{lake_path}/zones", headers=headers)
     zones_resp.raise_for_status()
     zones = zones_resp.json().get("zones", [])
@@ -119,25 +116,28 @@ def main():
             if args.asset and asset_id != args.asset:
                 continue
 
+            # Detect linked BigQuery dataset automatically
             bq_resource = asset['resourceSpec'].get('resource') or asset['resourceSpec'].get('name')
             if not bq_resource:
+                print(f"Skipping asset {asset_id}: no linked BigQuery dataset found")
                 continue
 
-            # ----------------- Asset Aspects -----------------
+            parts = bq_resource.replace("//bigquery.googleapis.com/", "").split('/')
+            if len(parts) != 4:
+                continue
+            bq_project, bq_dataset = parts[1], parts[3]
+
+            # ----------------- Asset (Dataset) Aspects -----------------
             if args.entry_type == "asset":
-                resource_name = asset['name']  # Use Dataplex asset resource path directly
-                print("Attaching aspects to asset:", resource_name)
-                if attach_aspects(headers, resource_name, aspects_data):
+                dataset_entry_id = f"bigquery.googleapis.com/projects/{bq_project}/datasets/{bq_dataset}"
+                entry_name = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/{ENTRY_GROUP}/entries/{quote(dataset_entry_id)}"
+                print("Attaching aspects to asset entry:", entry_name)
+                if attach_aspects(headers, entry_name, aspects_data):
                     success_count += 1
 
             # ----------------- Table Aspects -----------------
             elif args.entry_type == "table" and asset_type == "BIGQUERY_DATASET":
-                parts = bq_resource.replace("//bigquery.googleapis.com/", "").split('/')
-                if len(parts) != 4:
-                    continue
-                bq_project, bq_dataset = parts[1], parts[3]
                 bq_dataset_ref = bigquery.DatasetReference(bq_project, bq_dataset)
-
                 try:
                     tables = list(bq_client.list_tables(bq_dataset_ref))
                 except NotFound:
