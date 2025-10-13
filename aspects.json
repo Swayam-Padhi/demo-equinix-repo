@@ -1,0 +1,32 @@
+{
+  "groups": {
+    "mandatory": [
+      "owner-details",
+      "business-criteria",
+      "pii-tag"
+    ],
+    "finance": [
+      "owner-details",
+      "business-criteria"
+    ],
+    "sensitive": [
+      "pii-tag"
+    ]
+  },
+  "owner-details": {
+    "name": "Ranjit Kumar",
+    "email": "RanjitkumarSahni@yahoo.com",
+    "department": "IT"
+  },
+  "business-criteria": {
+    "category": "Finance",
+    "critical": true
+  },
+  "pii-tag": {
+    "sensitivity_info": true
+  },
+  "data-quality": {
+    "quality_score": 95,
+    "critical": true
+  }
+}

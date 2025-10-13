@@ -1,0 +1,43 @@
+name: Dataplex Aspect Attachment
+
+on:
+  workflow_dispatch:
+    inputs:
+      lake:
+        description: "Enter Lake ID"
+        required: true
+      asset:
+        description: "Enter Asset (optional)"
+        required: false
+      table:
+        description: "Enter Table (optional)"
+        required: false
+      aspects:
+        description: "Select 'mandatory' or provide comma-separated aspects/groups"
+        required: true
+        default: "mandatory"
+
+jobs:
+  attach_aspects:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          pip install google-cloud-bigquery google-auth requests colorama
+
+      - name: Run Aspect Attachment
+        run: |
+          python aspect_attach.py \
+            --lake "${{ github.event.inputs.lake }}" \
+            --asset "${{ github.event.inputs.asset }}" \
+            --table "${{ github.event.inputs.table }}" \
+            --aspects "${{ github.event.inputs.aspects }}"
