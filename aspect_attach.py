@@ -58,21 +58,21 @@ BASE_URL = "https://dataplex.googleapis.com/v1"
 ASPECTS_FILE = "aspects.json"
 
 # ----------------- Helper: Attach Aspects -----------------
-def attach_aspects(headers, entry_name, aspects_data):
-    entry_url = f"{BASE_URL}/{entry_name}"  # Full URL
+def attach_aspects(headers, resource_name, aspects_data):
+    """Attach aspects to the given resource (asset or table entry)."""
     payload = {
-        "name": entry_name,
+        "name": resource_name,
         "aspects": {f"{PROJECT_ID}.{LOCATION}.{a}": {"data": aspects_data[a]} for a in TARGET_ASPECTS}
     }
-    response = requests.patch(entry_url, headers=headers, data=json.dumps(payload))
+    response = requests.patch(f"{BASE_URL}/{resource_name}", headers=headers, data=json.dumps(payload))
     if response.status_code == 200:
-        print(f"Aspects attached successfully to {entry_name}")
+        print(f"Aspects attached successfully to {resource_name}")
         return True
     try:
         error_msg = response.json().get("error", {}).get("message", response.text)
     except:
         error_msg = response.text
-    print(f"Failed ({response.status_code}) on {entry_name}: {error_msg}")
+    print(f"Failed ({response.status_code}) on {resource_name}: {error_msg}")
     return False
 
 # ----------------- Main Logic -----------------
@@ -103,6 +103,7 @@ def main():
     lake_path = f"projects/{PROJECT_ID}/locations/{LOCATION}/lakes/{args.lake}"
     print(f"Processing Lake: {args.lake}")
 
+    # Get all zones in the lake
     zones_resp = requests.get(f"{BASE_URL}/{lake_path}/zones", headers=headers)
     zones_resp.raise_for_status()
     zones = zones_resp.json().get("zones", [])
@@ -113,7 +114,7 @@ def main():
         assets = assets_resp.json().get("assets", [])
 
         for asset in assets:
-            asset_id = asset['name'].split('/')[-1]  # Dataplex asset ID
+            asset_id = asset['name'].split('/')[-1]
             asset_type = asset.get('resourceSpec', {}).get('type')
             if args.asset and asset_id != args.asset:
                 continue
@@ -122,29 +123,14 @@ def main():
             if not bq_resource:
                 continue
 
-            # ----------------- Asset Entry -----------------
+            # ----------------- Asset Aspects -----------------
             if args.entry_type == "asset":
-                # Fetch the correct entry ID from Dataplex
-                entries_resp = requests.get(f"{BASE_URL}/{zone['name']}/entryGroups/{ENTRY_GROUP}/entries", headers=headers)
-                entries_resp.raise_for_status()
-                entries = entries_resp.json().get("entries", [])
-
-                entry_id = None
-                for e in entries:
-                    if e.get('resourceSpec', {}).get('name') == asset['name']:
-                        entry_id = e['name'].split('/')[-1]  # Correct Dataplex entry ID
-                        break
-
-                if not entry_id:
-                    print(f"Asset {asset_id} does not have a registered entry in Dataplex. Skipping.")
-                    continue
-
-                entry_name = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/{ENTRY_GROUP}/entries/{quote(entry_id)}"
-                print("Attaching aspects to asset entry:", entry_name)
-                if attach_aspects(headers, entry_name, aspects_data):
+                resource_name = asset['name']  # Use Dataplex asset resource path directly
+                print("Attaching aspects to asset:", resource_name)
+                if attach_aspects(headers, resource_name, aspects_data):
                     success_count += 1
 
-            # ----------------- Table Entries -----------------
+            # ----------------- Table Aspects -----------------
             elif args.entry_type == "table" and asset_type == "BIGQUERY_DATASET":
                 parts = bq_resource.replace("//bigquery.googleapis.com/", "").split('/')
                 if len(parts) != 4:
@@ -171,7 +157,6 @@ def main():
         sys.exit(1)
     else:
         print(f"Aspects attached successfully to {success_count} entry(s).")
-
 
 if __name__ == "__main__":
     main()
