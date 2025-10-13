@@ -26,7 +26,7 @@
     "sensitivity_info": true
   },
   "data-quality": {
-    "quality_score": 95,
+    "quality-score": 95,
     "critical": true
   }
 }
