@@ -43,7 +43,7 @@ jobs:
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GCP_SA_KEY }}
         run: |
-          python attach_aspects.py \
+          python aspect_attach.py \
             --entry_type "${{ github.event.inputs.entry_type }}" \
             --lake "${{ github.event.inputs.lake }}" \
             --asset "${{ github.event.inputs.asset }}" \
