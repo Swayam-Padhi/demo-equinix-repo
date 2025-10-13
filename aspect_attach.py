@@ -101,6 +101,7 @@ def main():
     lake_path = f"projects/{PROJECT_ID}/locations/{LOCATION}/lakes/{args.lake}"
     print(f"Processing Lake: {args.lake}")
 
+    # Get all zones in the lake
     zones_resp = requests.get(f"{BASE_URL}/{lake_path}/zones", headers=headers)
     zones_resp.raise_for_status()
     zones = zones_resp.json().get("zones", [])
@@ -113,10 +114,12 @@ def main():
         for asset in assets:
             asset_id = asset['name'].split('/')[-1]
             asset_type = asset.get('resourceSpec', {}).get('type')
+
+            # If asset name is provided, skip others
             if args.asset and asset_id != args.asset:
                 continue
 
-            # Detect linked BigQuery dataset automatically
+            # Detect linked BigQuery dataset
             bq_resource = asset['resourceSpec'].get('resource') or asset['resourceSpec'].get('name')
             if not bq_resource:
                 print(f"Skipping asset {asset_id}: no linked BigQuery dataset found")
