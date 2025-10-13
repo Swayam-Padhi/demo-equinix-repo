@@ -26,6 +26,7 @@ on:
 jobs:
   attach-aspects:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -41,8 +42,8 @@ jobs:
 
       - name: Setup GCP Service Account
         run: |
-          echo "${{ secrets.GCP_SA_KEY }}" > gcp-key.json
-          echo "GOOGLE_APPLICATION_CREDENTIALS=$PWD/gcp-key.json" >> $GITHUB_ENV
+          echo '${{ secrets.GCP_SA_KEY }}' > $GITHUB_WORKSPACE/gcp-key.json
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$GITHUB_WORKSPACE/gcp-key.json" >> $GITHUB_ENV
 
       - name: Run Dataplex Aspect Attach Script
         run: |
@@ -52,5 +53,6 @@ jobs:
             --asset "${{ github.event.inputs.asset }}" \
             --table "${{ github.event.inputs.table }}" \
             --aspects "${{ github.event.inputs.aspects }}"
+
 
 
