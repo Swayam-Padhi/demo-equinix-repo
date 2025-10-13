@@ -9,16 +9,24 @@ from urllib.parse import quote
 from google.api_core.exceptions import NotFound
 
 # ----------------- Argument Parsing -----------------
-parser = argparse.ArgumentParser(description="Attach Dataplex aspects to BigQuery tables.")
+parser = argparse.ArgumentParser(description="Attach Dataplex aspects to BigQuery tables or assets.")
+parser.add_argument("--entry_type", required=True, choices=["asset", "table"], help="Type of entry to attach aspects to.")
 parser.add_argument("--lake", required=True, help="Dataplex Lake ID")
-parser.add_argument("--asset", required=False, help="Asset (dataset) name (optional)")
-parser.add_argument("--table", required=False, help="Table name (optional)")
+parser.add_argument("--asset", required=True, help="Asset (dataset) name")
+parser.add_argument("--table", required=False, help="Table name (optional; applies to all if omitted)")
 parser.add_argument("--aspects", required=True, help="Select 'mandatory' or provide comma-separated aspects/groups")
 args = parser.parse_args()
 
+# ----------------- Constants -----------------
+PROJECT_ID = "clean-aleph-411709"
+LOCATION = "us-central1"
+ENTRY_GROUP = "@bigquery"
+BASE_URL = "https://dataplex.googleapis.com/v1"
+ASPECTS_FILE = "aspects.json"
+
 # ----------------- Load Aspects -----------------
 try:
-    with open("aspects.json", "r") as f:
+    with open(ASPECTS_FILE, "r") as f:
         aspects_json = json.load(f)
 except FileNotFoundError:
     print("Error: aspects.json file not found.")
@@ -40,169 +48,113 @@ for aspect_name in input_aspects:
         expanded_aspects.extend(aspect_groups[aspect_name])
     else:
         expanded_aspects.append(aspect_name)
-
-expanded_aspects = list(dict.fromkeys(expanded_aspects))  # remove duplicates
+expanded_aspects = list(dict.fromkeys(expanded_aspects))  # Remove duplicates
 
 # ----------------- Validate Aspects -----------------
 invalid_aspects = [a for a in expanded_aspects if a not in all_aspects]
 if invalid_aspects:
-    print(f"Error: These aspects are not defined: {', '.join(invalid_aspects)}")
+    print(f"Error: Invalid aspects: {', '.join(invalid_aspects)}")
     print(f"Available aspects: {', '.join(all_aspects.keys())}")
     sys.exit(1)
 
 TARGET_ASPECTS = expanded_aspects
 
-# ----------------- Assign Targets -----------------
-TARGET_LAKE_ID = args.lake.strip()
-TARGET_DATASET = args.asset.strip() if args.asset else None
-TARGET_TABLE = args.table.strip() if args.table else None
-
-# ----------------- Config -----------------
-PROJECT_ID = "clean-aleph-411709"
-LOCATION = "us-central1"
-ENTRY_GROUP = "@bigquery"
-BASE_URL = "https://dataplex.googleapis.com/v1"
-ASPECTS_FILE = "aspects.json"
-
-# ----------------- Helper: Attach Aspects -----------------
-def attach_aspects(headers, bq_project_id, bq_dataset_id, table_id, dataset_location, aspects_data):
-    entry_id = f"bigquery.googleapis.com/projects/{bq_project_id}/datasets/{bq_dataset_id}/tables/{table_id}"
-    entry_name = f"projects/{PROJECT_ID}/locations/{dataset_location}/entryGroups/{ENTRY_GROUP}/entries/{quote(entry_id)}"
-    url = f"{BASE_URL}/{entry_name}"
-
-    aspects_payload = {}
-    for aspect_name in TARGET_ASPECTS:
-        aspects_payload[f"{PROJECT_ID}.{dataset_location}.{aspect_name}"] = {"data": aspects_data[aspect_name]}
-
-    payload = {"name": entry_name, "aspects": aspects_payload}
-    response = requests.patch(url, headers=headers, data=json.dumps(payload))
-
-    if response.status_code == 200:
-        print(f"Aspects attached successfully to {table_id}")
-        return True
-    elif response.status_code == 403:
-        try:
-            error_json = response.json()
-            error_message = error_json.get("error", {}).get("message", "")
-        except:
-            error_message = response.text
-        print(f"Permission denied ({response.status_code}): {error_message}")
-        return False
-    else:
-        try:
-            error_json = response.json()
-            error_message = error_json.get("error", {}).get("message", "")
-        except json.JSONDecodeError:
-            error_message = response.text
-        print(f"Failed ({response.status_code}): {error_message}")
-        return False
-
-# ----------------- Main Logic -----------------
-def list_dataplex_assets_safely():
-    try:
-        credentials, project = google.auth.default(
-            scopes=["https://www.googleapis.com/auth/cloud-platform"]
-        )
-        print("Authentication successful.")
-    except google.auth.exceptions.DefaultCredentialsError:
-        print("Authentication failed. Ensure GOOGLE_APPLICATION_CREDENTIALS is set.")
-        sys.exit(1)
-
+# ----------------- Auth -----------------
+try:
+    credentials, project = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
     if not credentials.valid:
         credentials.refresh(Request())
-    access_token = credentials.token
-    headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
-    bq_client = bigquery.Client(project=PROJECT_ID)
+    headers = {"Authorization": f"Bearer {credentials.token}", "Content-Type": "application/json"}
+except Exception as e:
+    print(f"Authentication error: {e}")
+    sys.exit(1)
 
+bq_client = bigquery.Client(project=PROJECT_ID)
+
+# ----------------- Helper: Attach Aspects -----------------
+def attach_aspects(entry_name, aspects_data):
+    aspects_payload = {}
+    for aspect_name in TARGET_ASPECTS:
+        key = f"{PROJECT_ID}.{LOCATION}.{aspect_name}"
+        aspects_payload[key] = {"data": aspects_data[aspect_name]}
+
+    payload = {"name": entry_name, "aspects": aspects_payload}
+    response = requests.patch(f"{BASE_URL}/{entry_name}", headers=headers, data=json.dumps(payload))
+
+    if response.status_code == 200:
+        print(f"Aspects attached successfully to {entry_name}")
+        return True
+    else:
+        try:
+            err = response.json()
+            msg = err.get("error", {}).get("message", response.text)
+        except:
+            msg = response.text
+        print(f"Failed ({response.status_code}): {msg}")
+        return False
+
+# ----------------- Main -----------------
+def main():
+    success_count = 0
     with open(ASPECTS_FILE, "r") as f:
         aspects_data = json.load(f)
 
-    success_count = 0  # Track number of successful attachments
+    if args.entry_type == "asset":
+        # Attach directly to the asset entry
+        entry_name = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/{ENTRY_GROUP}/entries/{args.asset}"
+        if attach_aspects(entry_name, aspects_data):
+            success_count += 1
 
-    try:
-        lake_name_path = f"projects/{PROJECT_ID}/locations/{LOCATION}/lakes/{TARGET_LAKE_ID}"
-        lake_response = requests.get(f"{BASE_URL}/{lake_name_path}", headers=headers)
-        lake_response.raise_for_status()
-        print(f"Processing Lake: {TARGET_LAKE_ID}")
+    elif args.entry_type == "table":
+        # Attach to one or all tables in the specified dataset
+        lake_name = f"projects/{PROJECT_ID}/locations/{LOCATION}/lakes/{args.lake}"
+        lake_response = requests.get(f"{BASE_URL}/{lake_name}/zones", headers=headers)
+        zones = lake_response.json().get("zones", [])
 
-        zones_response = requests.get(f"{BASE_URL}/{lake_name_path}/zones", headers=headers)
-        zones_response.raise_for_status()
-        zones_list = zones_response.json().get("zones", [])
-
-        if not zones_list:
-            print("No zones found for the target lake.")
-            sys.exit(1)
-
-        for zone in zones_list:
-            zone_id = zone["name"].split("/")[-1]
-            print(f"Zone: {zone_id}")
-
+        for zone in zones:
             assets_response = requests.get(f"{BASE_URL}/{zone['name']}/assets", headers=headers)
-            assets_response.raise_for_status()
-            assets_list = assets_response.json().get("assets", [])
+            assets = assets_response.json().get("assets", [])
 
-            if not assets_list:
-                print("No assets found in this zone.")
-                continue
-
-            for asset in assets_list:
-                asset_id = asset['name'].split('/')[-1]
-                asset_type = asset.get('resourceSpec', {}).get('type')
-                print(f"Asset: {asset_id} ({asset_type})")
-
-                if TARGET_DATASET and asset_id != TARGET_DATASET:
+            for asset in assets:
+                asset_id = asset["name"].split("/")[-1]
+                if asset_id != args.asset:
                     continue
 
-                if asset_type == 'BIGQUERY_DATASET':
-                    bq_resource_full_path = asset['resourceSpec'].get('resource') or asset['resourceSpec'].get('name')
-                    if not bq_resource_full_path:
-                        print(f"Skipping asset {asset_id}: No resource path found.")
-                        continue
+                bq_resource = asset["resourceSpec"].get("resource")
+                if not bq_resource or "datasets" not in bq_resource:
+                    continue
 
-                    display_path = bq_resource_full_path.replace("//bigquery.googleapis.com/", "")
-                    parts = display_path.split('/')
-                    if len(parts) < 4:
-                        print(f"Skipping asset {asset_id}: Unexpected resource format: {display_path}")
-                        continue
+                parts = bq_resource.split("/")
+                bq_project_id = parts[3]
+                bq_dataset_id = parts[5]
+                dataset_ref = bigquery.DatasetReference(bq_project_id, bq_dataset_id)
+                try:
+                    dataset_obj = bq_client.get_dataset(dataset_ref)
+                except NotFound:
+                    print(f"Dataset {bq_dataset_id} not found. Skipping.")
+                    continue
 
-                    bq_project_id = parts[1]
-                    bq_dataset_id = parts[3]
-                    dataset_ref = bigquery.DatasetReference(bq_project_id, bq_dataset_id)
-                    try:
-                        bq_dataset_obj = bq_client.get_dataset(dataset_ref)
-                    except NotFound:
-                        print(f"Dataset {bq_project_id}.{bq_dataset_id} not found, skipping.")
-                        continue
-                    dataset_location = bq_dataset_obj.location.lower()
+                dataset_location = dataset_obj.location.lower()
+                tables = list(bq_client.list_tables(dataset_ref))
 
-                    tables = list(bq_client.list_tables(dataset_ref))
-                    if not tables:
-                        print("No tables found.")
-                        continue
+                if not tables:
+                    print(f"No tables found in dataset {bq_dataset_id}.")
+                    continue
 
-                    for table in tables:
-                        table_id = table.table_id
-                        if TARGET_TABLE and table_id != TARGET_TABLE:
-                            continue
-                        attached = attach_aspects(headers, bq_project_id, bq_dataset_id, table_id, dataset_location, aspects_data)
-                        if attached:
-                            success_count += 1
-                else:
-                    print(f"Skipping non-BigQuery asset.")
+                for table in tables:
+                    if args.table and table.table_id != args.table:
+                        continue  # Skip others if specific table is given
 
-        if success_count == 0:
-            print("No aspects were attached successfully. Exiting with failure.")
-            sys.exit(1)
-        else:
-            print(f"Aspects attached successfully to {success_count} table(s).")
+                    entry_id = f"bigquery.googleapis.com/projects/{bq_project_id}/datasets/{bq_dataset_id}/tables/{table.table_id}"
+                    entry_name = f"projects/{PROJECT_ID}/locations/{dataset_location}/entryGroups/{ENTRY_GROUP}/entries/{quote(entry_id)}"
+                    if attach_aspects(entry_name, aspects_data):
+                        success_count += 1
 
-    except requests.exceptions.HTTPError as http_err:
-        print(f"HTTP error: {http_err}")
-        print(f"Response Body: {http_err.response.text}")
+    if success_count == 0:
+        print("No aspects were attached successfully. Exiting with failure.")
         sys.exit(1)
-    except Exception as e:
-        print(f"Unexpected error: {e}")
-        sys.exit(1)
+    else:
+        print(f"Aspects attached successfully to {success_count} target(s).")
 
 if __name__ == "__main__":
-    list_dataplex_assets_safely()
+    main()
