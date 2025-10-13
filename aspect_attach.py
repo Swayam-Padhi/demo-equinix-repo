@@ -124,7 +124,22 @@ def main():
 
             # ----------------- Asset Entry -----------------
             if args.entry_type == "asset":
-                entry_name = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/{ENTRY_GROUP}/entries/{quote(asset_id)}"
+                # Fetch the correct entry ID from Dataplex
+                entries_resp = requests.get(f"{BASE_URL}/{zone['name']}/entryGroups/{ENTRY_GROUP}/entries", headers=headers)
+                entries_resp.raise_for_status()
+                entries = entries_resp.json().get("entries", [])
+
+                entry_id = None
+                for e in entries:
+                    if e.get('resourceSpec', {}).get('name') == asset['name']:
+                        entry_id = e['name'].split('/')[-1]  # Correct Dataplex entry ID
+                        break
+
+                if not entry_id:
+                    print(f"Asset {asset_id} does not have a registered entry in Dataplex. Skipping.")
+                    continue
+
+                entry_name = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/{ENTRY_GROUP}/entries/{quote(entry_id)}"
                 print("Attaching aspects to asset entry:", entry_name)
                 if attach_aspects(headers, entry_name, aspects_data):
                     success_count += 1
