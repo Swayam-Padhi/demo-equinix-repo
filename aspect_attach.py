@@ -7,10 +7,6 @@ from google.auth.transport.requests import Request
 from google.cloud import bigquery
 from urllib.parse import quote
 from google.api_core.exceptions import NotFound
-from colorama import Fore, Style, init
-
-# Initialize colorama
-init(autoreset=True)
 
 # ----------------- Argument Parsing -----------------
 parser = argparse.ArgumentParser(description="Attach Dataplex aspects to BigQuery tables.")
@@ -25,7 +21,7 @@ try:
     with open("aspects.json", "r") as f:
         aspects_json = json.load(f)
 except FileNotFoundError:
-    print(f"{Fore.RED}Error: aspects.json file not found.")
+    print("Error: aspects.json file not found.")
     sys.exit(1)
 
 aspect_groups = aspects_json.get("groups", {})
@@ -35,7 +31,7 @@ all_aspects = {k: v for k, v in aspects_json.items() if k != "groups"}
 input_aspects = [a.strip() for a in args.aspects.split(",") if a.strip()]
 
 if not input_aspects:
-    print(f"{Fore.RED}Error: You must select 'mandatory' or provide at least one aspect/group.")
+    print("Error: You must select 'mandatory' or provide at least one aspect/group.")
     sys.exit(1)
 
 expanded_aspects = []
@@ -50,8 +46,8 @@ expanded_aspects = list(dict.fromkeys(expanded_aspects))  # remove duplicates
 # ----------------- Validate Aspects -----------------
 invalid_aspects = [a for a in expanded_aspects if a not in all_aspects]
 if invalid_aspects:
-    print(f"{Fore.RED}Error: These aspects are not defined: {', '.join(invalid_aspects)}")
-    print(f"{Fore.YELLOW}Available aspects: {', '.join(all_aspects.keys())}")
+    print(f"Error: These aspects are not defined: {', '.join(invalid_aspects)}")
+    print(f"Available aspects: {', '.join(all_aspects.keys())}")
     sys.exit(1)
 
 TARGET_ASPECTS = expanded_aspects
@@ -82,7 +78,7 @@ def attach_aspects(headers, bq_project_id, bq_dataset_id, table_id, dataset_loca
     response = requests.patch(url, headers=headers, data=json.dumps(payload))
 
     if response.status_code == 200:
-        print(f"{Fore.GREEN}Aspects attached successfully to {table_id}")
+        print(f"Aspects attached successfully to {table_id}")
         return True
     elif response.status_code == 403:
         try:
@@ -90,7 +86,7 @@ def attach_aspects(headers, bq_project_id, bq_dataset_id, table_id, dataset_loca
             error_message = error_json.get("error", {}).get("message", "")
         except:
             error_message = response.text
-        print(f"{Fore.RED}Permission denied ({response.status_code}): {error_message}")
+        print(f"Permission denied ({response.status_code}): {error_message}")
         return False
     else:
         try:
@@ -98,7 +94,7 @@ def attach_aspects(headers, bq_project_id, bq_dataset_id, table_id, dataset_loca
             error_message = error_json.get("error", {}).get("message", "")
         except json.JSONDecodeError:
             error_message = response.text
-        print(f"{Fore.RED}Failed ({response.status_code}): {error_message}")
+        print(f"Failed ({response.status_code}): {error_message}")
         return False
 
 # ----------------- Main Logic -----------------
@@ -107,9 +103,9 @@ def list_dataplex_assets_safely():
         credentials, project = google.auth.default(
             scopes=["https://www.googleapis.com/auth/cloud-platform"]
         )
-        print(f"{Fore.GREEN}Authentication successful.")
+        print("Authentication successful.")
     except google.auth.exceptions.DefaultCredentialsError:
-        print(f"{Fore.RED}Authentication failed. Ensure GOOGLE_APPLICATION_CREDENTIALS is set.")
+        print("Authentication failed. Ensure GOOGLE_APPLICATION_CREDENTIALS is set.")
         sys.exit(1)
 
     if not credentials.valid:
@@ -127,32 +123,32 @@ def list_dataplex_assets_safely():
         lake_name_path = f"projects/{PROJECT_ID}/locations/{LOCATION}/lakes/{TARGET_LAKE_ID}"
         lake_response = requests.get(f"{BASE_URL}/{lake_name_path}", headers=headers)
         lake_response.raise_for_status()
-        print(f"{Fore.BLUE}Processing Lake: {TARGET_LAKE_ID}")
+        print(f"Processing Lake: {TARGET_LAKE_ID}")
 
         zones_response = requests.get(f"{BASE_URL}/{lake_name_path}/zones", headers=headers)
         zones_response.raise_for_status()
         zones_list = zones_response.json().get("zones", [])
 
         if not zones_list:
-            print(f"{Fore.YELLOW}No zones found for the target lake.")
+            print("No zones found for the target lake.")
             sys.exit(1)
 
         for zone in zones_list:
             zone_id = zone["name"].split("/")[-1]
-            print(f"{Fore.BLUE}Zone: {zone_id}")
+            print(f"Zone: {zone_id}")
 
             assets_response = requests.get(f"{BASE_URL}/{zone['name']}/assets", headers=headers)
             assets_response.raise_for_status()
             assets_list = assets_response.json().get("assets", [])
 
             if not assets_list:
-                print(f"{Fore.YELLOW}No assets found in this zone.")
+                print("No assets found in this zone.")
                 continue
 
             for asset in assets_list:
                 asset_id = asset['name'].split('/')[-1]
                 asset_type = asset.get('resourceSpec', {}).get('type')
-                print(f"{Fore.CYAN}Asset: {asset_id} ({asset_type})")
+                print(f"Asset: {asset_id} ({asset_type})")
 
                 if TARGET_DATASET and asset_id != TARGET_DATASET:
                     continue
@@ -160,13 +156,13 @@ def list_dataplex_assets_safely():
                 if asset_type == 'BIGQUERY_DATASET':
                     bq_resource_full_path = asset['resourceSpec'].get('resource') or asset['resourceSpec'].get('name')
                     if not bq_resource_full_path:
-                        print(f"{Fore.YELLOW}Skipping asset {asset_id}: No resource path found.")
+                        print(f"Skipping asset {asset_id}: No resource path found.")
                         continue
 
                     display_path = bq_resource_full_path.replace("//bigquery.googleapis.com/", "")
                     parts = display_path.split('/')
                     if len(parts) < 4:
-                        print(f"{Fore.YELLOW}Skipping asset {asset_id}: Unexpected resource format: {display_path}")
+                        print(f"Skipping asset {asset_id}: Unexpected resource format: {display_path}")
                         continue
 
                     bq_project_id = parts[1]
@@ -175,13 +171,13 @@ def list_dataplex_assets_safely():
                     try:
                         bq_dataset_obj = bq_client.get_dataset(dataset_ref)
                     except NotFound:
-                        print(f"{Fore.YELLOW}Dataset {bq_project_id}.{bq_dataset_id} not found, skipping.")
+                        print(f"Dataset {bq_project_id}.{bq_dataset_id} not found, skipping.")
                         continue
                     dataset_location = bq_dataset_obj.location.lower()
 
                     tables = list(bq_client.list_tables(dataset_ref))
                     if not tables:
-                        print(f"{Fore.YELLOW}No tables found.")
+                        print("No tables found.")
                         continue
 
                     for table in tables:
@@ -192,20 +188,20 @@ def list_dataplex_assets_safely():
                         if attached:
                             success_count += 1
                 else:
-                    print(f"{Fore.YELLOW}Skipping non-BigQuery asset.")
+                    print(f"Skipping non-BigQuery asset.")
 
         if success_count == 0:
-            print(f"{Fore.RED}No aspects were attached successfully. Exiting with failure.")
+            print("No aspects were attached successfully. Exiting with failure.")
             sys.exit(1)
         else:
-            print(f"{Fore.GREEN}Aspects attached successfully to {success_count} table(s).")
+            print(f"Aspects attached successfully to {success_count} table(s).")
 
     except requests.exceptions.HTTPError as http_err:
-        print(f"{Fore.RED}HTTP error: {http_err}")
-        print(f"{Fore.RED}Response Body: {http_err.response.text}")
+        print(f"HTTP error: {http_err}")
+        print(f"Response Body: {http_err.response.text}")
         sys.exit(1)
     except Exception as e:
-        print(f"{Fore.RED}Unexpected error: {e}")
+        print(f"Unexpected error: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
