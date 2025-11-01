@@ -11,8 +11,7 @@ import google.auth
 
 # ----------------- Argument Parsing -----------------
 parser = argparse.ArgumentParser(description="Attach Dataplex aspects to BigQuery assets, tables, or columns.")
-parser.add_argument("--entry_type", required=True, choices=["asset", "table", "column"],
-                    help="Entry type: asset, table, or column")
+parser.add_argument("--entry_type", required=True, choices=["asset", "table", "column"], help="Entry type")
 parser.add_argument("--lake", required=True, help="Dataplex Lake ID")
 parser.add_argument("--asset", required=False, help="Asset (dataset) name")
 parser.add_argument("--table", required=False, help="Table name (only if entry_type=table or column)")
@@ -27,7 +26,7 @@ try:
     with open("aspects.json", "r") as f:
         aspects_json = json.load(f)
 except FileNotFoundError:
-    print("❌ Error: aspects.json file not found.")
+    print("Error: aspects.json file not found.")
     sys.exit(1)
 
 aspect_groups = aspects_json.get("groups", {})
@@ -36,7 +35,7 @@ all_aspects = {k: v for k, v in aspects_json.items() if k != "groups"}
 # ----------------- Parse & Expand Input -----------------
 input_aspects = [a.strip() for a in args.aspects.split(",") if a.strip()]
 if not input_aspects:
-    print("❌ Error: You must provide at least one aspect/group.")
+    print("Error: You must provide at least one aspect/group.")
     sys.exit(1)
 
 expanded_aspects = []
@@ -49,7 +48,7 @@ expanded_aspects = list(dict.fromkeys(expanded_aspects))
 
 invalid_aspects = [a for a in expanded_aspects if a not in all_aspects]
 if invalid_aspects:
-    print(f"❌ Error: These aspects are not defined: {', '.join(invalid_aspects)}")
+    print(f"Error: These aspects are not defined: {', '.join(invalid_aspects)}")
     sys.exit(1)
 
 TARGET_ASPECTS = expanded_aspects
@@ -63,7 +62,6 @@ ASPECTS_FILE = "aspects.json"
 
 # ----------------- Helper: Attach Aspects -----------------
 def attach_aspects(headers, entry_name, aspects_data, column_name=None):
-    """Attach aspects to a Dataplex entry (table, asset, or column)."""
     aspects_payload = {}
     for a in TARGET_ASPECTS:
         aspect_full_name = f"{PROJECT_ID}.{LOCATION}.{a}"
@@ -73,9 +71,11 @@ def attach_aspects(headers, entry_name, aspects_data, column_name=None):
     if column_name:
         payload["target"] = {"type": "COLUMN", "name": column_name}
 
+    print(f"\n📘 DEBUG: PATCH {entry_name}{' (column: ' + column_name + ')' if column_name else ''}")
     response = requests.patch(f"{BASE_URL}/{entry_name}", headers=headers, data=json.dumps(payload))
+
     if response.status_code == 200:
-        print(f"✅ Aspects attached successfully to {entry_name}{' (column ' + column_name + ')' if column_name else ''}")
+        print(f"✅ Aspects attached successfully to {entry_name}{' (column: ' + column_name + ')' if column_name else ''}")
         return True
     try:
         error_msg = response.json().get("error", {}).get("message", response.text)
@@ -87,7 +87,7 @@ def attach_aspects(headers, entry_name, aspects_data, column_name=None):
 # ----------------- Main Logic -----------------
 def main():
     if "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
-        print("❌ GOOGLE_APPLICATION_CREDENTIALS not set. Exiting.")
+        print("GOOGLE_APPLICATION_CREDENTIALS not set. Exiting.")
         sys.exit(1)
 
     try:
@@ -98,7 +98,7 @@ def main():
         if not credentials.valid:
             credentials.refresh(Request())
     except Exception as e:
-        print(f"❌ Authentication failed: {e}")
+        print(f"Authentication failed: {e}")
         sys.exit(1)
 
     headers = {"Authorization": f"Bearer {credentials.token}", "Content-Type": "application/json"}
@@ -109,7 +109,7 @@ def main():
 
     success_count = 0
     lake_path = f"projects/{PROJECT_ID}/locations/{LOCATION}/lakes/{args.lake}"
-    print(f" Processing Lake: {args.lake}")
+    print(f"Processing Lake: {args.lake}")
 
     # Get zones
     zones_resp = requests.get(f"{BASE_URL}/{lake_path}/zones", headers=headers)
@@ -137,16 +137,17 @@ def main():
                 continue
 
             bq_project, bq_dataset = parts[1], parts[3]
+            dataset_clean = bq_dataset.replace("-", "_")
 
-            # ----------------- Asset (Dataset) Aspects -----------------
+            # ---------- Asset ----------
             if args.entry_type == "asset":
-                dataset_entry_id = f"bigquery.googleapis.com/projects/{bq_project}/datasets/{bq_dataset}"
+                dataset_entry_id = f"bigquery.googleapis.com/projects/{bq_project}/datasets/{dataset_clean}"
                 entry_name = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/{ENTRY_GROUP}/entries/{quote(dataset_entry_id)}"
-                print(f" Attaching aspects to asset: {asset_id}")
+                print(f"Attaching aspects to asset: {dataset_clean}")
                 if attach_aspects(headers, entry_name, aspects_data):
                     success_count += 1
 
-            # ----------------- Table/Column Aspects -----------------
+            # ---------- Table ----------
             elif args.entry_type in ["table", "column"] and asset_type == "BIGQUERY_DATASET":
                 dataset_ref = bigquery.DatasetReference(bq_project, bq_dataset)
                 try:
@@ -158,28 +159,23 @@ def main():
                     if args.table and table.table_id != args.table:
                         continue
 
-                    table_entry_id = f"bigquery.googleapis.com/projects/{bq_project}/datasets/{bq_dataset}/tables/{table.table_id}"
+                    table_entry_id = f"bigquery.googleapis.com/projects/{bq_project}/datasets/{dataset_clean}/tables/{table.table_id}"
                     table_entry_name = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/{ENTRY_GROUP}/entries/{quote(table_entry_id)}"
 
-                    # Attach to table
                     if args.entry_type == "table":
-                        print(f" Attaching aspects to table: {table.table_id}")
+                        print(f"Attaching aspects to table: {table.table_id}")
                         if attach_aspects(headers, table_entry_name, aspects_data):
                             success_count += 1
-
-                        # Optionally attach to all columns
                         if args.include_columns.lower() == "true":
                             table_schema = bq_client.get_table(table).schema
                             for field in table_schema:
-                                if attach_aspects(headers, table_entry_name, aspects_data, column_name=field.name):
-                                    success_count += 1
+                                attach_aspects(headers, table_entry_name, aspects_data, column_name=field.name)
 
-                    # Attach to a specific column
                     elif args.entry_type == "column":
                         if not args.column:
-                            print("❌ Column name is required when entry_type=column")
+                            print("Error: --column is required when entry_type=column")
                             sys.exit(1)
-                        print(f" Attaching aspects to column '{args.column}' of table '{table.table_id}'")
+                        print(f"Attaching aspects to column '{args.column}' in table '{table.table_id}'")
                         if attach_aspects(headers, table_entry_name, aspects_data, column_name=args.column):
                             success_count += 1
 
@@ -191,4 +187,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
