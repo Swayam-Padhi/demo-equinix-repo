@@ -1,0 +1,65 @@
+name: Attach Dataplex Aspects
+
+on:
+  workflow_dispatch:
+    inputs:
+      entry_type:
+        description: "Select entry type (asset, table, or column)"
+        required: true
+        type: choice
+        options:
+          - asset
+          - table
+          - column
+      lake:
+        description: "Enter the Dataplex Lake ID"
+        required: true
+      asset:
+        description: "Enter the Asset (dataset) name"
+        required: false
+      table:
+        description: "Enter the Table name"
+        required: false
+      column:
+        description: "Enter the Column name (only if entry_type=column)"
+        required: false
+      aspects:
+        description: "Enter 'mandatory' or comma-separated aspects/groups"
+        required: true
+      include_columns:
+        description: "If true, also attach aspects to all columns (only for table type)"
+        required: false
+        default: "false"
+
+jobs:
+  attach-aspects:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          pip install google-auth google-cloud-bigquery requests
+
+      - name: Setup GCP Service Account
+        run: |
+          echo '${{ secrets.GCP_SA_KEY }}' > $GITHUB_WORKSPACE/gcp-key.json
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$GITHUB_WORKSPACE/gcp-key.json" >> $GITHUB_ENV
+
+      - name: Run Dataplex Aspect Attach Script
+        run: |
+          python aspect_attach.py \
+            --entry_type "${{ github.event.inputs.entry_type }}" \
+            --lake "${{ github.event.inputs.lake }}" \
+            --asset "${{ github.event.inputs.asset }}" \
+            --table "${{ github.event.inputs.table }}" \
+            --column "${{ github.event.inputs.column }}" \
+            --aspects "${{ github.event.inputs.aspects }}" \
+            --include_columns "${{ github.event.inputs.include_columns }}"
