@@ -55,7 +55,7 @@ jobs:
 
       - name: Run Dataplex Aspect Attach Script
         run: |
-          python aspect_attach.py \
+          python aspect_attach_column.py \
             --entry_type "${{ github.event.inputs.entry_type }}" \
             --lake "${{ github.event.inputs.lake }}" \
             --asset "${{ github.event.inputs.asset }}" \
