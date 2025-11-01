@@ -26,7 +26,7 @@ try:
     with open("aspects.json", "r") as f:
         aspects_json = json.load(f)
 except FileNotFoundError:
-    print("Error: aspects.json file not found.")
+    print("❌ Error: aspects.json file not found.")
     sys.exit(1)
 
 aspect_groups = aspects_json.get("groups", {})
@@ -35,7 +35,7 @@ all_aspects = {k: v for k, v in aspects_json.items() if k != "groups"}
 # ----------------- Parse & Expand Input -----------------
 input_aspects = [a.strip() for a in args.aspects.split(",") if a.strip()]
 if not input_aspects:
-    print("Error: You must provide at least one aspect/group.")
+    print("❌ Error: You must provide at least one aspect/group.")
     sys.exit(1)
 
 expanded_aspects = []
@@ -48,7 +48,7 @@ expanded_aspects = list(dict.fromkeys(expanded_aspects))
 
 invalid_aspects = [a for a in expanded_aspects if a not in all_aspects]
 if invalid_aspects:
-    print(f"Error: These aspects are not defined: {', '.join(invalid_aspects)}")
+    print(f"❌ Error: These aspects are not defined: {', '.join(invalid_aspects)}")
     sys.exit(1)
 
 TARGET_ASPECTS = expanded_aspects
@@ -56,7 +56,7 @@ TARGET_ASPECTS = expanded_aspects
 # ----------------- Config -----------------
 PROJECT_ID = "clean-aleph-411709"
 LOCATION = "us-central1"
-ENTRY_GROUP = "@bigquery"
+ENTRY_GROUP = "bigquery"  # ✅ FIXED (removed '@')
 BASE_URL = "https://dataplex.googleapis.com/v1"
 ASPECTS_FILE = "aspects.json"
 
@@ -77,19 +77,22 @@ def attach_aspects(headers, entry_name, aspects_data, column_name=None):
     if response.status_code == 200:
         print(f"✅ Aspects attached successfully to {entry_name}{' (column: ' + column_name + ')' if column_name else ''}")
         return True
+
     try:
         error_msg = response.json().get("error", {}).get("message", response.text)
     except Exception:
         error_msg = response.text
+
     print(f"❌ Failed ({response.status_code}) on {entry_name}: {error_msg}")
     return False
 
 # ----------------- Main Logic -----------------
 def main():
     if "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
-        print("GOOGLE_APPLICATION_CREDENTIALS not set. Exiting.")
+        print("❌ GOOGLE_APPLICATION_CREDENTIALS not set. Exiting.")
         sys.exit(1)
 
+    # Authenticate
     try:
         credentials, _ = google.auth.load_credentials_from_file(
             os.environ["GOOGLE_APPLICATION_CREDENTIALS"],
@@ -98,7 +101,7 @@ def main():
         if not credentials.valid:
             credentials.refresh(Request())
     except Exception as e:
-        print(f"Authentication failed: {e}")
+        print(f"❌ Authentication failed: {e}")
         sys.exit(1)
 
     headers = {"Authorization": f"Bearer {credentials.token}", "Content-Type": "application/json"}
@@ -109,7 +112,7 @@ def main():
 
     success_count = 0
     lake_path = f"projects/{PROJECT_ID}/locations/{LOCATION}/lakes/{args.lake}"
-    print(f"Processing Lake: {args.lake}")
+    print(f"🔍 Processing Lake: {args.lake}")
 
     # Get zones
     zones_resp = requests.get(f"{BASE_URL}/{lake_path}/zones", headers=headers)
@@ -142,8 +145,10 @@ def main():
             # ---------- Asset ----------
             if args.entry_type == "asset":
                 dataset_entry_id = f"bigquery.googleapis.com/projects/{bq_project}/datasets/{dataset_clean}"
-                entry_name = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/{ENTRY_GROUP}/entries/{quote(dataset_entry_id)}"
-                print(f"Attaching aspects to asset: {dataset_clean}")
+                entry_name = (
+                    f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/{ENTRY_GROUP}/entries/{quote(dataset_entry_id)}"
+                )
+                print(f"📂 Attaching aspects to asset: {dataset_clean}")
                 if attach_aspects(headers, entry_name, aspects_data):
                     success_count += 1
 
@@ -159,13 +164,18 @@ def main():
                     if args.table and table.table_id != args.table:
                         continue
 
-                    table_entry_id = f"bigquery.googleapis.com/projects/{bq_project}/datasets/{dataset_clean}/tables/{table.table_id}"
-                    table_entry_name = f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/{ENTRY_GROUP}/entries/{quote(table_entry_id)}"
+                    table_entry_id = (
+                        f"bigquery.googleapis.com/projects/{bq_project}/datasets/{dataset_clean}/tables/{table.table_id}"
+                    )
+                    table_entry_name = (
+                        f"projects/{PROJECT_ID}/locations/{LOCATION}/entryGroups/{ENTRY_GROUP}/entries/{quote(table_entry_id)}"
+                    )
 
                     if args.entry_type == "table":
-                        print(f"Attaching aspects to table: {table.table_id}")
+                        print(f"📊 Attaching aspects to table: {table.table_id}")
                         if attach_aspects(headers, table_entry_name, aspects_data):
                             success_count += 1
+
                         if args.include_columns.lower() == "true":
                             table_schema = bq_client.get_table(table).schema
                             for field in table_schema:
@@ -173,9 +183,10 @@ def main():
 
                     elif args.entry_type == "column":
                         if not args.column:
-                            print("Error: --column is required when entry_type=column")
+                            print("❌ Error: --column is required when entry_type=column")
                             sys.exit(1)
-                        print(f"Attaching aspects to column '{args.column}' in table '{table.table_id}'")
+
+                        print(f"🔠 Attaching aspects to column '{args.column}' in table '{table.table_id}'")
                         if attach_aspects(headers, table_entry_name, aspects_data, column_name=args.column):
                             success_count += 1
 
