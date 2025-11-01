@@ -1,31 +1,109 @@
 {
   "groups": {
-    "mandatory": [
-      "owner-details",
-      "business-criteria",
-      "pii-tag"
+    "governance": [
+      "data-ownership-and-business-context",
+      "data-classification-and-privacy",
+      "data-security-and-access-control"
     ],
-    "finance": [
-      "owner-details",
-      "business-criteria"
+    "operations": [
+      "data-lifecycle-and-operational-metadata",
+      "data-storage-and-technical-metadata"
     ],
-    "sensitive": [
-      "pii-tag"
+    "monitoring": [
+      "data-usage-and-popularity-metrics"
+    ],
+    "all": [
+      "data-ownership-and-business-context",
+      "data-classification-and-privacy",
+      "data-lifecycle-and-operational-metadata",
+      "data-storage-and-technical-metadata",
+      "data-security-and-access-control",
+      "data-usage-and-popularity-metrics",
+      "department"
     ]
   },
-  "owner-details": {
-    "name": "Ranjit Kumar",
-    "email": "RanjitkumarSahni@yahoo.com",
-    "department": "IT"
+
+  "data-ownership-and-business-context": {
+    "domain-owner": "John Doe",
+    "data-steward": "Jane Smith",
+    "technical-owner": "TechOps Team",
+    "business-description": "Core product and transaction dataset",
+    "business-glossary-terms": "Product Data Glossary",
+    "domain": "Sales",
+    "subdomain": "GMPO",
+    "criticality": "High",
+    "primary-contact": "datasteward@example.com",
+    "usage-notes": "Used in daily revenue dashboards",
+    "data-product-name-id": "gmpo_product_sales",
+    "stakeholders": "Finance, Analytics, Product"
   },
-  "business-criteria": {
-    "category": "Finance",
-    "critical": true
+
+  "data-classification-and-privacy": {
+    "data-classification-type": "Analytical",
+    "confidentiality-level": "Internal",
+    "contains-pii": false,
+    "contains-pci": false,
+    "contains-phi": false,
+    "gdpr-relevant": false,
+    "ccpa-relevant": false,
+    "data-subject-types": "Customers",
+    "lawful-basis-consent": "Legitimate interest",
+    "data-residency-sovereignty": "US-Central1",
+    "cross-border-transfer": "None",
+    "handling-instructions": "Standard data handling",
+    "legal-hold-applicable": false
   },
-  "pii-tag": {
-    "sensitivity_info": true
+
+  "data-lifecycle-and-operational-metadata": {
+    "lifecycle-stage": "Active",
+    "business-kpi-alignment": "Revenue tracking",
+    "update-frequency": "Daily",
+    "source-system": "Salesforce",
+    "target-consumers": "Analytics Team",
+    "data-retention-policy": "1 year",
+    "sla-refresh-expectation": "Daily at 3 AM",
+    "data-latency-p95": "2 hours",
+    "processing-window": "00:00–03:00 UTC",
+    "backfill-policy": "Monthly",
+    "versioning-strategy": "Schema versioning via Git",
+    "promotion-path": "Dev → UAT → Prod"
   },
-  "data-quality": {
-    "quality-score": 95
+
+  "data-storage-and-technical-metadata": {
+    "storage-location": "bq://clean-aleph-411709.sales_dataset.gmpo",
+    "data-format": "BigQuery Table",
+    "partitioning-clustering": "Partitioned by date",
+    "primary-business-keys": "product_id",
+    "scd-type": "SCD1",
+    "schema-evolution-policy": "Additive changes only",
+    "orchestration": "Cloud Composer DAG: sales_data_load",
+    "transformation-tool": "dbt",
+    "repository-path": "https://github.com/org/analytics-pipelines",
+    "data-contracts-schemas": "https://schema-registry.company.com/contracts/gmpo"
+  },
+
+  "data-security-and-access-control": {
+    "risk-level": "Medium",
+    "exposure-type": "Internal",
+    "masking-required": false,
+    "encryption-required": true,
+    "access-model": "RBAC",
+    "approved-roles-groups": "analytics-readers, data-engineers",
+    "break-glass-process": "Email security@example.com",
+    "exception-register-id": "EXC-2025-001",
+    "secrets-location": "Secret Manager: projects/clean-aleph-411709/secrets/gmpo-keys"
+  },
+
+  "data-usage-and-popularity-metrics": {
+    "data-freshness": "Updated daily",
+    "usage-frequency": "High",
+    "consumers-apps": "Looker, Data Studio, ML Pipelines",
+    "popularity-metrics": "Queries/day: 5000; Users: 120",
+    "certified-endorsed": true,
+    "top-dashboards-models": "Revenue Overview, GMPO Product Tracker"
+  },
+
+  "department": {
+    "owner-name": "Ranjit Kumar"
   }
 }
