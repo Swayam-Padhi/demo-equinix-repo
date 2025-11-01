@@ -56,7 +56,7 @@ TARGET_ASPECTS = expanded_aspects
 # ----------------- Config -----------------
 PROJECT_ID = "clean-aleph-411709"
 LOCATION = "us-central1"
-ENTRY_GROUP = "bigquery"  # ✅ FIXED (removed '@')
+ENTRY_GROUP = "@bigquery"  # ✅ FIXED (removed '@')
 BASE_URL = "https://dataplex.googleapis.com/v1"
 ASPECTS_FILE = "aspects.json"
 
