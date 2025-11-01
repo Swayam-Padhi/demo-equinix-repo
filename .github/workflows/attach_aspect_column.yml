@@ -1,4 +1,4 @@
-name: Attach Dataplex Aspects
+name: Attach Dataplex Aspects all
 
 on:
   workflow_dispatch:
